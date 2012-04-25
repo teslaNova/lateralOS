@@ -1,0 +1,32 @@
+CC=/usr/local/cross/bin/i586-elf-gcc
+LD=/usr/local/cross/bin/i586-elf-ld
+LS=/bin/ls
+MV=/bin/mv
+CP=/bin/cp
+RM=/bin/rm
+NASM=/usr/bin/nasm
+MAKE=/usr/bin/make
+MKISOFS=/usr/local/bin/mkisofs
+
+LDFLAGS=-L/usr/local/cross/lib
+CFLAGS=	-nostdinc 				\
+		-fno-stack-protector 	\
+		-fpack-struct 			\
+		-fleading-underscore 	\
+		-fno-builtin 			\
+		-ffreestanding			\
+		-nostdlib				\
+		-c						\
+		-m32					\
+		-O0
+
+
+### IMAGE
+IMAGE_TARGET=lateralOS.iso
+
+### BOOT
+BOOT_TARGET=stage2_eltorito
+
+### KERNEL
+KRNL_TARGET=lateralOS
+KRNL_OUTPUT=./kernel/bin
