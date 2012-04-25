@@ -7,6 +7,7 @@
 */
 #include <lateralOS/pm/acpi.h>
 
+#include <lateralOS/cpu.h>
 #include <lateralOS/ism/apic.h>
 
 struct RSDP *rsdp;
@@ -89,7 +90,9 @@ acpi_parse(void) {
 
 				switch(type) {
 					case ACPI_APIC_TYPE_LAPIC: {
+						struct LAPIC *lapic = (struct LAPIC *)(p + offset);
 						
+						cpu_get(lapic->apic_id)->lapic_base = madt->lapic_addr;
 					} break;
 
 					case ACPI_APIC_TYPE_IOAPIC: {

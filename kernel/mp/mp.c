@@ -7,6 +7,8 @@
 */
 #include <lateralOS/mp/mp.h>
 
+#include <lateralOS/cpu.h>
+
 void
 mp_parse(void) {
 	struct mp_floating_pointer *mp_fp;
@@ -75,6 +77,10 @@ mp_parse(void) {
 	for(i=0; i<mp_fp->conf->entries; i++) {
 		switch(*base_entry) {
 			case MP_ET_PROC: {
+				struct mp_entry_proc *proc = (struct mp_entry_proc *)base_entry; 
+				
+				cpu_get(proc->lapic_id)->lapic_base = mp_fp->conf->lapic_base;
+
 				base_entry += MP_ES_PROC;
 			} break;
 
