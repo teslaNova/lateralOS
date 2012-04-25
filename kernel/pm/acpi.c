@@ -74,10 +74,7 @@ acpi_parse(void) {
 		panic();
 	}
 
-	//k_printf("RSDP: 0x%x | RSDT: 0x%x | Entries: 0x%x\r\n", rsdp, rsdp->rsdt, rsdp->rsdt->entry[0]);
-
 	n = (rsdp->rsdt->header.len - sizeof(struct SDH)) / sizeof(struct SDH *);
-	//k_printf("SDHs: %d\r\n", n);
 
 	for(i=0; i<n; i++) {
 		struct SDH *e = (struct SDH *)rsdp->rsdt->entry[i];
