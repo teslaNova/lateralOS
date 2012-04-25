@@ -15,6 +15,28 @@ ushort *video = (ushort *)0xB8000;
 byte	pos_x = 0;
 byte	pos_y = 0;
 
+struct div {
+	uint64 q;
+	uint r;
+};
+
+struct div *
+divmod(uint64 n, uint d) {
+	static struct div dm;
+	uint hi = n >> 32, lo = (uint)n;
+
+	__asm__ (
+		"div %%ecx;"
+		"xchg %%ebx, %%eax;"
+		"div %%ecx;"
+		"xchg %%edx, %%ebx"
+		: "=A"(dm.q), "=b"(dm.r)
+		: "a"(hi), "b"(lo), "c"(d), "d"(0)
+	);
+
+	return &dm;
+}
+
 void
 k_cls(void) {
 	ushort i;
@@ -52,24 +74,28 @@ k_putc(char c) {
 }
 
 void
-k_putn(const int n, const int base) {
-	const byte chrtbl[]= "0123456789ABCDEF";
-	const int buflen = 64;
+k_putn(const uint64 n, const int base) {
+	const byte chrtbl[]= "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	const int buflen = 65;
+	struct div *dm;
 
 	assert(base > 0);
 
 	char buf[buflen], tmp[buflen];
 	char is_neg = (n < 0 ? 1 : 0);
-	int j = 0, i = (is_neg ? -n : n), q;
+	int j = 0;
+	uint r;
+	uint64 i = (is_neg ? -n : n);
 
 	memset(buf, 0, buflen);
 	memset(tmp, 0, buflen);
 
 	do {
-		q = (int)(i % base);
-		i /= base;
+		dm = divmod(i, base);
+		r = dm->r;
+		i = dm->q;
 
-		tmp[j++] = chrtbl[q];
+		tmp[j++] = chrtbl[r];
 	} while(i > 0);
 
 	if(is_neg) {
@@ -78,8 +104,8 @@ k_putn(const int n, const int base) {
 		j -= 1;
 	}
 
-	for(q=(is_neg ? 1 : 0); q <= j; q++) {
-		buf[q] = tmp[j - q];
+	for(r=(is_neg ? 1 : 0); r <= j; r++) {
+		buf[r] = tmp[j - r];
 	}
 
 	k_puts(buf);
@@ -121,7 +147,7 @@ k_printf(const char *format, ...) {
 			} break;
 
 			case 'u': {
-				k_putn(va_arg(ap, uint), 10);
+				k_putn(va_arg(ap, uint64), 10);
 			}
 
 			case 'x': {

@@ -17,7 +17,7 @@ void
 k_putc(char c);
 
 void
-k_putn(const int n, const int base);
+k_putn(const uint64 n, const int base);
 
 void
 k_puts(const char *msg);
