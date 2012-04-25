@@ -7,6 +7,8 @@
 */
 #include <lateralOS/pm/acpi.h>
 
+#include <lateralOS/ism/apic.h>
+
 struct RSDP *rsdp;
 
 void
@@ -67,29 +69,42 @@ acpi_parse(void) {
 	|| rsdp->rsdt->header.sig != ACPI_SIG_RSDT
 	|| verify((byte *)&rsdp->rsdt->header, rsdp->rsdt->header.len) != 0) {
 		k_cls();
-		k_printf("Unable to find ACPI RSDP\r\n");
+		k_printf("Unable to find ACPI RSDP/RSDT\r\n");
 
 		panic();
 	}
 
-	k_printf("ACPI Rev. %x\r\n", rsdp->rev);
+	//k_printf("RSDP: 0x%x | RSDT: 0x%x | Entries: 0x%x\r\n", rsdp, rsdp->rsdt, rsdp->rsdt->entry[0]);
 
 	n = (rsdp->rsdt->header.len - sizeof(struct SDH)) / sizeof(struct SDH *);
-	k_printf("SDHs: %d\r\n", n);
+	//k_printf("SDHs: %d\r\n", n);
 
 	for(i=0; i<n; i++) {
 		struct SDH *e = (struct SDH *)rsdp->rsdt->entry[i];
 
-		k_printf("entry at 0x%x -- ",rsdp->rsdt->entry[i]);
-
 		if(e->sig == ACPI_SIG_MADT) {
-			k_printf("APIC\r\n");
-		} else if(e->sig == ACPI_SIG_SSDT) {
-			k_printf("SSDT\r\n");
-		} else if(e->sig == ACPI_SIG_SSDT) {
-				k_printf("SSDT\r\n");
-		} else {
-			k_printf("\r\n");
+			struct MADT *madt = (struct MADT*)(e);
+			byte *p = (byte *)madt + sizeof(struct MADT);
+			uint offset = 0, limit = madt->header.len - sizeof(struct MADT);
+
+			while(offset < limit) {
+				byte type = p[offset];
+
+				switch(type) {
+					case ACPI_APIC_TYPE_LAPIC: {
+						
+					} break;
+
+					case ACPI_APIC_TYPE_IOAPIC: {
+						struct IOAPIC *ioapic = (struct IOAPIC *)(p + offset);
+
+						apic_io_set(ioapic->ioapic_addr);
+					} break;
+				}
+
+				offset += p[offset+1];
+			}
+
 		}
 	}
 }
