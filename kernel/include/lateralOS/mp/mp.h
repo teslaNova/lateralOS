@@ -122,4 +122,7 @@ enum {
 	MP_ES_DEF		= 8,
 };
 
+void
+mp_parse(void);
+
 #endif /* K_CONF_MP_H_ */
