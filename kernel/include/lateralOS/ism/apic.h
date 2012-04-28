@@ -76,22 +76,22 @@ struct io_apic {
 };
 
 void
-apic_enable(void);
+apic_local_enable(void);
 
 void
-apic_disable(void);
+apic_local_disable(void);
 
 void
-apic_init(void);
-
-void
-apic_eoi(uint int_no);
+apic_local_eoi(uint int_no);
 
 void
 apic_local_write(uint reg, uint data);
 
 uint
 apic_local_read(uint reg);
+
+void
+apic_io_init(void);
 
 void
 apic_io_set(uint base_addr);
@@ -117,6 +117,9 @@ enum {
 	IOAPIC_DM_EXT 	= (0b111 << 8),
 	IOAPIC_DM_NMI	= (0b100 << 8),
 };
+
+void
+apic_init(void);
 
 void
 apic_map(void);

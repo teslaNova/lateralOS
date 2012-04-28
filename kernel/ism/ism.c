@@ -39,11 +39,13 @@ ism_init(void) {
 	k_puts("\t\t-> PIC\r\n");
 	pic_init();
 
-	if(cpu_get(0)->support.apic) {
+	if(cpu_get_local()->support.apic) {
 		pic_disable();
 
-		k_puts("\t\t-> APIC\r\n");
+		k_puts("\t\t-> APIC (IO, Local)\r\n");
+		
 		apic_init();
+		apic_local_enable();
 	} else {
 		pic_enable();
 	}
@@ -67,8 +69,8 @@ ism_handler(struct ism_context *c) {
 		ism_interrupt_handler(c);
 	}
 
-	if(cpu_get(0)->support.apic) {
-		apic_eoi(c->int_no);
+	if(cpu_get_local()->support.apic) {
+		apic_local_eoi(c->int_no);
 	} else {
 		pic_eoi(c->int_no);
 	}
@@ -93,7 +95,8 @@ ism_exception_handler(struct ism_context *c) {
 
 void
 ism_interrupt_handler(struct ism_context *c) {
-	k_printf("Got IRQ: %x\r\n", c->int_no);
+
+	k_printf("Got IRQ: %x (%x)\r", c->int_no, c->int_no == 0x20 ? inb(0x60) : 0);
 
 	if(isr_tbl[c->int_no].handler != 0) {
 		isr_tbl[c->int_no].handler(c);
