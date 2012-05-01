@@ -16,9 +16,9 @@
 
 #include <lateralOS/screen.h>
 
-struct cpu cpus[CPU_NUM] = {0};
+struct cpu_ent cpu_tbl[CPU_NUM] = {0};
+uint cpu_ec = 0;
 
-inline
 void cpuid(struct regs *regs) {
 	assert(regs != 0);
 
@@ -36,14 +36,17 @@ void cpuid(struct regs *regs) {
 }
 
 void cpu_init() {
-	static uint ci = 0;
 	struct regs data = {0};
-	struct cpu *cpu = 0;
+	struct cpu_ent *cpu = 0;
 	uint i, j;
 
-	assert(ci < CPU_NUM);
+	assert(cpu_ec < CPU_NUM);
 
-	cpu = &cpus[ci++];
+	cpu = &cpu_tbl[cpu_ec++];
+
+	if(cpu_ec-1 == 0) {
+		cpu->is_bsp = 1;
+	}
 
 	/* get features */
 	data.eax = 1;
@@ -64,120 +67,74 @@ void cpu_init() {
 	cpu->support.sse4_1 = (data.ecx & (1 << 19)) ? 1 : 0;
 	cpu->support.sse4_2 = (data.ecx & (1 << 20)) ? 1 : 0;
 
-	if(cpu != 0) {
-		/* get brand string */
-		i = 0x80000002;
-		j = 0;
+	cpu->support.msr = (data.edx & (1 << 5)) ? 1 : 0;
 
-		while(i < 0x80000005) {
-			data.eax = i++;
-			cpuid(&data);
+	/* get brand string */
+	i = 0x80000002;
+	j = 0;
 
-			memcpy(cpu->id + (j++*4), &(data.eax), 4); 
-			memcpy(cpu->id + (j++*4), &(data.ebx), 4);
-			memcpy(cpu->id + (j++*4), &(data.ecx), 4);
-			memcpy(cpu->id + (j++*4), &(data.edx), 4);
-		}
+	while(i < 0x80000005) {
+		data.eax = i++;
+		cpuid(&data);
+
+		memcpy(cpu->id + (j++*4), &(data.eax), 4); 
+		memcpy(cpu->id + (j++*4), &(data.ebx), 4);
+		memcpy(cpu->id + (j++*4), &(data.ecx), 4);
+		memcpy(cpu->id + (j++*4), &(data.edx), 4);
 	}
 }
 
-struct cpu *
+struct cpu_ent *
 cpu_get(uint i) {
 	assert(i < CPU_NUM);
 
-	return &cpus[i];
+	return &cpu_tbl[i];
 }
 
-void
-mp_parse(void) {
-	struct mp_floating_pointer *mp_fp;
-	uint tmp;
+struct cpu_ent *
+cpu_get_local(void) {
+	struct regs data;
 
-	uint i;
-	uint loc[3][2] = {
-		{0, 		0x400},
-		{0x9FC00, 0xA0000},
-		{0xE0000, 0xFFFFF}
-	};
+	data.eax = 1;
+	cpuid(&data);
 
-	char verify(byte *data, uint len) {
-		uint i;
-		byte sum;
+	return cpu_get((data.ebx >> 24));
+}
 
-		for(i=0, sum=0; i<len; i++) {
-			sum += data[i];
-		}
+uint
+cpu_count(void) {
+	return cpu_ec;
+}
 
-		return sum;
-	}
+uint64
+cpu_msr_read(uint msr) {
+	uint hi, lo;
 
-	struct mp_floating_pointer *locate_floating_pointer(uint start, uint end) {
-		struct mp_floating_pointer *mp_fp = (struct mp_floating_pointer *)start;
-		
-
-		while((uint)mp_fp < end) {
-			if(mp_fp->sig == MP_SIG_FP) {
-				if(verify((byte *)mp_fp, mp_fp->len * 16) == 0) {
-					return mp_fp;
-				}
-			}
-
-			mp_fp++;
-		}
-
+	if(cpu_get_local()->support.msr == 0) {
 		return 0;
 	}
 
-	for(i=0; i<3; i++) {
-		mp_fp = locate_floating_pointer(loc[i][0], loc[i][1]);
+	__asm__ (
+		"rdmsr"
+		: "=a"(lo), "=d"(hi)
+		: "c" (msr)
+	);
 
-		if(mp_fp != 0) {
-			break;
-		}
+	return ((uint64)hi) << 32 | lo;
+}
+
+void
+cpu_msr_write(uint msr, uint64 d) {
+	uint lo = d & 0xFFFFFFFF,
+		hi = (d >> 32) & 0xFFFFFFFF;
+
+	if(cpu_get_local()->support.msr == 0) {
+		return 0;
 	}
 
-	if(mp_fp == 0) {
-		k_cls();
-		k_printf("Unable to find MP Configuration Tables\r\n");
-
-		panic();
-	}
-
-	if(mp_fp->conf->sig != MP_SIG_CONF) {
-		k_cls();
-		k_printf("Unable to find MP Configuration Tables\r\n");
-
-		panic();
-	}
-
-
-	byte *base_entry = ((byte *)mp_fp->conf) + sizeof(struct mp_config_table);
-
-	for(i=0; i<mp_fp->conf->entries; i++) {
-		switch(*base_entry) {
-			case MP_ET_PROC: {
-				base_entry += MP_ES_PROC;
-			} break;
-
-			case MP_ET_BUS: {
-				base_entry += MP_ES_DEF;
-			} break;
-
-			case MP_ET_IOAPIC: {
-				struct mp_entry_ioapic *ioapic = (struct mp_entry_ioapic *)base_entry; 
-				
-				apic_io_set(ioapic->address);
-
-				base_entry += MP_ES_DEF;
-			} break;
-
-			case MP_ET_IOINT: {
-				base_entry += MP_ES_DEF;
-			} break;
-
-			case MP_ET_LINT: {
-				base_entry += MP_ES_DEF;
-			} break;
-		}
-	}
+	__asm__ (
+		"wrmsr"
+		:: "a"(lo), "d"(hi),
+			"c" (msr)
+	);
 }
