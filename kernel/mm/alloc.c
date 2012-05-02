@@ -52,13 +52,10 @@ k_malloc(uint size) {
 		return (void *)0;
 	}
 
-//	k_printf("allocating %x / actual: %x\r\n", size, actual_size);
-
 	if(k_heap == 0) {
 		k_heap = request_chunks();
 
 		if(k_heap == 0) {
-//			k_printf("k_heap == 0\r\n");
 			return (void *)0;
 		}
 	}
@@ -74,7 +71,6 @@ k_malloc(uint size) {
 		chunk = chunk->next_chunk;
 
 		if(chunk == 0) {
-//			k_printf("chunk == 0\r\n");
 			return (void *)0;
 		}
 	}
@@ -90,21 +86,15 @@ k_malloc(uint size) {
 			memset(chunk->first_block, 0, MM_CHUNK_SIZE);
 		}
 
-//		k_printf("chunk (size: %x) == 0x%x\r\n", chunk->size, chunk);
-
 		block = chunk->first_block;
 
 		if(block == 0) {
 			return (void *)0;
 		}
 
-//		k_printf("range: 0x%x - 0x%x\r\n", block, (uint)block + MM_CHUNK_SIZE);
-
 		while(block->reserved == 1 /* maybe check here if it overruns (in case of bufferoverflow) */) {
 			block = (struct mm_block *)((uint)block + block->size);
 		}
-
-//		k_printf("using block at 0x%x\r\n", block);
 		
 		block->reserved = 1;
 		block->size = (size & 0x7FFFFFFF);
@@ -175,6 +165,5 @@ k_free(void *base) {
 		} while(block->reserved == 1);
 
 		chunk = chunk->next_chunk;
-	} while(chunk->size != MM_CHUNK_UNUSED
-		&& chunk->next_chunk != 0);
+	} while(chunk->size != MM_CHUNK_UNUSED && chunk->next_chunk != 0);
 }
