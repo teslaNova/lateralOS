@@ -143,7 +143,7 @@ void
 vmm_set_directory(struct page_directory *pd) {
 	assert(pd != 0);
 
-	__asm__ (
+	__asm__ volatile (
 		"mov %0, %%eax;"
 		"mov %%eax, %%cr3"
 		:: "m" (pd)
@@ -219,7 +219,7 @@ vmm_get_table(struct vmm_flags flags, uint pde_num) {
 
 void
 vmm_enable(void) {
-	__asm__ (
+	__asm__ volatile (
 		"mov %cr0, %eax;"
 		"or $0x80000000, %eax;"
 		"mov %eax, %cr0"
@@ -228,7 +228,7 @@ vmm_enable(void) {
 
 void
 vmm_disable(void) {
-	__asm__ (
+	__asm__ volatile (
 		"mov %cr0, %eax;"
 		"and %eax, 0x7FFFFFFF;"
 		"mov %eax, %cr0"
@@ -246,26 +246,106 @@ vmm_get_related_adress_space(uint l, uint h, uint n) {
 	assert(current_pd != 0);
 	assert(n > 0);
 
-	if(h != 0) {
-		h = VA_TO_DIR(h);
-	} else {
-		h = 1024;
+//	k_printf("0x%x (%x) - 0x%x (%x) -> ", l, VA_TO_DIR(l), h, VA_TO_DIR(h));
+
+	if(h == 0) {
+		h = (uint)(-1);
 	}
 
-	for(i=VA_TO_DIR(l), k=0; i<h, k<n; i++) {
+	if(flags.reverse == 0) {
+		for(i=VA_TO_DIR(l), k=0; i<VA_TO_DIR(h), k<n; i++) {
+			pt = vmm_get_table(flags, i);
+
+			if(i == 0) {
+				j = VA_TO_TBL(l);
+			} else {
+				j = 0;
+			}
+
+			for(j; j<1024, k<n; j++) {
+				pte = &pt->entry[j];
+
+				if(pte->present == 0) {
+					if(k == 0) {
+						va = DIR_TO_VA(i) | TBL_TO_VA(j);
+					}
+
+					k++;
+				} else if(pte->present == 1) {
+					k = 0;
+				}
+			}
+		}
+	} else {
+		k_printf("..");
+		for(i=VA_TO_DIR(h), k=0; i>VA_TO_DIR(l), k<n; i++) {
+			pt = vmm_get_table(flags, i);
+
+			if(i == 0) {
+				j = VA_TO_TBL(l);
+			} else {
+				j = 0;
+			}
+
+			for(j=1023; j>=0, k<n; j--) {
+				pte = &pt->entry[j];
+
+				if(pte->present == 0) {
+					if(k == 0) {
+						va = DIR_TO_VA(i) | TBL_TO_VA(j);
+					}
+
+					k++;
+				} else if(pte->present == 1) {
+					k = 0;
+				}
+			}
+		}
+
+		if(va > 0) {
+			va -= (PAGE_ALIGNMENT * (n-1));
+		}
+	}
+
+	if(k < n || va + (PAGE_ALIGNMENT * n) > h) {
+		va = 0;
+	}
+
+//	k_printf("0x%x\r\n", va);
+
+	return va;
+}
+
+uint
+vmm_get_related_adress_space_reverse(uint l, uint h, uint n) {
+	struct vmm_flags flags = {.privileged = 0};
+	struct page_table *pt;
+	struct page_table_entry *pte;
+	uint i, j, k;
+	uint va = 0;
+
+	assert(current_pd != 0);
+	assert(n > 0);
+
+	if(h == 0) {
+		h = (uint)(-1);
+	}
+
+	for(i=VA_TO_DIR(h), k=0; i>=VA_TO_DIR(l), k<n; i--) {
 		pt = vmm_get_table(flags, i);
 
 		if(i == 0) {
-			j = VA_TO_TBL(l);
+			j = VA_TO_TBL(h);
 		} else {
-			j = 0;
+			j = (uint)(-1);
 		}
 
-		for(j; j<1024, k<n; j++) {
+		for(j; j>=0, k<n; j--) {
 			pte = &pt->entry[j];
 
 			if(pte->present == 0) {
 				if(k == 0) {
+					k_printf("%x -- ",va);
 					va = DIR_TO_VA(i) | TBL_TO_VA(j);
 				}
 
@@ -276,25 +356,38 @@ vmm_get_related_adress_space(uint l, uint h, uint n) {
 		}
 	}
 
-	if(k < n) {
+	if(k < n || va + (PAGE_ALIGNMENT * n) > h) {
 		va = 0;
+	} 
+
+	if(va > 0) {
+		va -= (PAGE_ALIGNMENT * (n-1));
 	}
+
+	k_printf("0x%x\r\n", va);
 
 	return va;
 }
 
 void *
-vmm_alloc(uint n) {
+vmm_alloc(struct vmm_flags flags, uint n) {
+	return vmm_alloc_range(flags, n, 0, (uint)(-1));
+}
+
+void *
+vmm_alloc_range(struct vmm_flags flags, uint n, uint l, uint h) {
 	uint va, pa, i;
-	struct vmm_flags flags = {.privileged = 0, .writeable = 1, .present = 1};
 
 	assert(current_pd != 0);
 	assert(n > 0);
 
 	pa = (uint)pmm_alloc();
-	va = vmm_get_related_adress_space(0x12345678, 0, n);
+	va = (flags.reverse 
+			? vmm_get_related_adress_space_reverse(l, h, n) 
+			: vmm_get_related_adress_space(l, h, n));
 	
-	if(va == 0) {
+	/* ouch, we're out of memory! :-( */
+	if(va == 0 || pa == 0) {
 		return (void *)0;
 	}
 

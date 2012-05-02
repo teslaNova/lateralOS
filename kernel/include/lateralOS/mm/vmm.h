@@ -47,12 +47,16 @@ struct page_table {
 };
 
 struct vmm_flags {
-	byte present;
-	byte writeable;
-	byte privileged;
-	byte pwt;
-	byte dis_cache;
-	byte dirty;
+	/* paging */
+	byte present	: 1;
+	byte writeable	: 1;
+	byte privileged	: 1;
+	byte pwt		: 1;
+	byte dis_cache	: 1;
+	byte dirty		: 1;
+
+	/* order */
+	byte reverse	: 1;
 };
 
 void
@@ -89,9 +93,15 @@ vmm_disable(void);
 uint
 vmm_get_related_adress_space(uint l, uint h, uint n);
 
+uint
+vmm_get_related_adress_space_reverse(uint l, uint h, uint n);
+
 /* MEMORY ALLOCATION */
 void *
-vmm_alloc(uint n);
+vmm_alloc(struct vmm_flags flags, uint n);
+
+void *
+vmm_alloc_range(struct vmm_flags flags, uint n, uint l, uint h);
 
 void
 vmm_free(void *virt_base_addr, uint n);
