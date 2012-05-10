@@ -9,6 +9,8 @@
 #include <lateralOS/mm/pmm.h>
 #include <lateralOS/mm/mmap.h>
 
+#include <lateralOS/lock.h>
+
 #include <lateralOS/types.h>
 
 #include <lateralOS/diag.h>
@@ -53,7 +55,7 @@ vmm_init(void) {
 	vmm_map_range(flags,
 		(uint)(&KERNEL_START),
 		(uint)(&KERNEL_START),
-		((uint)(&KERNEL_END)-(uint)(&KERNEL_START)) / PAGE_ALIGNMENT);
+		ALIGN_UP((uint)(&KERNEL_END)-(uint)(&KERNEL_START)) / PAGE_ALIGNMENT);
 
 	/* video identity mapping */
 	flags.privileged = 0;
@@ -63,7 +65,7 @@ vmm_init(void) {
 		MMAP_PHYS_VIDEO,
 		(MMAP_PHYS_VIDEO + MMAP_SIZE_VIDEO) / PAGE_ALIGNMENT);
 
-	/* alles nötige gemapped, also ab gehts */
+	/* everything needed is mapped, enable paging */
 	vmm_enable();
 
 /*	not working yet
@@ -73,6 +75,8 @@ vmm_init(void) {
 
 void
 vmm_map(struct vmm_flags flags, uint phys_addr, uint virt_addr) {
+	static byte map_lock;
+
 	struct page_directory_entry *t_pde = 0;
 	struct page_table_entry *t_pte = 0;
 	struct page_table *t_pt = 0;
@@ -82,11 +86,13 @@ vmm_map(struct vmm_flags flags, uint phys_addr, uint virt_addr) {
 	assert(virt_addr > 0);
 	assert(phys_addr > 0);
 
+	lock_acquire(&map_lock);
+
 	t_pde = &current_pd->entry[VA_TO_DIR(virt_addr)];
 	t_pt = vmm_get_table(flags, VA_TO_DIR(virt_addr));
 	t_pte = &t_pt->entry[VA_TO_TBL(virt_addr)];
 
-	/* überprüfen, ob die entsprechende pte schon existiert */
+	/* check, if the pte is present */
 	if(t_pte->page == 0 && t_pte->present == 0) {
 		t_pte->present 		= flags.present;
 		t_pte->writeable 	= flags.writeable;
@@ -97,10 +103,14 @@ vmm_map(struct vmm_flags flags, uint phys_addr, uint virt_addr) {
 	} else {
 		/* error: doppelter eintrag */
 	}
+
+	lock_release(&map_lock);
 }
 
 void
 vmm_unmap(uint virt_addr) {
+	static byte unmap_lock;
+
 	struct vmm_flags flags = {0};
 	struct page_directory_entry *t_pde = 0;
 	struct page_table_entry *t_pte = 0;
@@ -109,11 +119,15 @@ vmm_unmap(uint virt_addr) {
 	assert(current_pd != 0);
 	assert(virt_addr > 0);
 	
+	lock_acquire(&unmap_lock);
+
 	t_pde = &current_pd->entry[VA_TO_DIR(virt_addr)];
 	t_pt = vmm_get_table(flags, VA_TO_DIR(virt_addr));
 	t_pte = &t_pt->entry[VA_TO_TBL(virt_addr)];
 
 	memset(t_pte, 0, sizeof(struct page_table_entry));
+
+	lock_release(&unmap_lock);
 }
 
 void
@@ -153,18 +167,9 @@ vmm_set_directory(struct page_directory *pd) {
 }
 
 struct page_directory *
-vmm_create_directory(uint virt_base_addr) {
-	struct page_directory *pd;
+vmm_create_directory(void) {
+	struct page_directory *pd = 0;
 	struct vmm_flags flags = {.writeable = 1, .present = 1, .privileged = 0};
-
-	assert(kernel_pd != 0);
-
-	pd = pmm_alloc();
-	virt_base_addr = (virt_base_addr == 0 ? (uint)pd : virt_base_addr);
-	
-	vmm_map(flags, (uint)pd, virt_base_addr);
-
-	memcpy(virt_base_addr, kernel_pd, sizeof(struct page_directory));
 
 	return pd;
 }
@@ -184,7 +189,7 @@ vmm_get_table(struct vmm_flags flags, uint pde_num) {
 		return (struct page_table *)(pde->pt << 12);
 	}
 
-	/* virtuelle adresse erstellen */
+	/* obtain va */
 	if(current_pd == kernel_pd) {
 		tmp_va 	= MMAP_PHYS_PAGING
 				+ pde_num * PAGE_ALIGNMENT;
@@ -195,7 +200,7 @@ vmm_get_table(struct vmm_flags flags, uint pde_num) {
 		tmp_pa	= (uint)pmm_alloc();
 	}
 
-	/* pde eintrag überarbeiten */
+	/* edit pde */
 	pde->present = 1;
 	pde->writeable = 1;
 
@@ -207,9 +212,7 @@ vmm_get_table(struct vmm_flags flags, uint pde_num) {
 
 	pde->pt = (tmp_va >> 12);
 
-	/* nur mappen, wenn es kein kernel pd ist.
-		die 4mb nach dem kernel wurden schon
-		gemappt */
+	/* only map if this is an r3 pd, r0 is already mapped */
 	if(tmp_va != tmp_pa) {
 		vmm_map(flags, tmp_pa, tmp_va);
 	}
@@ -237,6 +240,8 @@ vmm_disable(void) {
 
 uint
 vmm_get_related_adress_space(uint l, uint h, uint n) {
+	static byte search_lock;
+
 	struct vmm_flags flags = {.privileged = 0};
 	struct page_table *pt;
 	struct page_table_entry *pte;
@@ -245,6 +250,8 @@ vmm_get_related_adress_space(uint l, uint h, uint n) {
 
 	assert(current_pd != 0);
 	assert(n > 0);
+
+	lock_acquire(&search_lock);
 
 //	k_printf("0x%x (%x) - 0x%x (%x) -> ", l, VA_TO_DIR(l), h, VA_TO_DIR(h));
 
@@ -277,7 +284,6 @@ vmm_get_related_adress_space(uint l, uint h, uint n) {
 			}
 		}
 	} else {
-		k_printf("..");
 		for(i=VA_TO_DIR(h), k=0; i>VA_TO_DIR(l), k<n; i++) {
 			pt = vmm_get_table(flags, i);
 
@@ -311,13 +317,15 @@ vmm_get_related_adress_space(uint l, uint h, uint n) {
 		va = 0;
 	}
 
-//	k_printf("0x%x\r\n", va);
+	lock_release(&search_lock);
 
 	return va;
 }
 
 uint
 vmm_get_related_adress_space_reverse(uint l, uint h, uint n) {
+	static byte search_lock;
+
 	struct vmm_flags flags = {.privileged = 0};
 	struct page_table *pt;
 	struct page_table_entry *pte;
@@ -326,6 +334,8 @@ vmm_get_related_adress_space_reverse(uint l, uint h, uint n) {
 
 	assert(current_pd != 0);
 	assert(n > 0);
+
+	lock_acquire(&search_lock);
 
 	if(h == 0) {
 		h = (uint)(-1);
@@ -345,7 +355,7 @@ vmm_get_related_adress_space_reverse(uint l, uint h, uint n) {
 
 			if(pte->present == 0) {
 				if(k == 0) {
-					k_printf("%x -- ",va);
+//					k_printf("%x -- ",va);
 					va = DIR_TO_VA(i) | TBL_TO_VA(j);
 				}
 
@@ -364,7 +374,7 @@ vmm_get_related_adress_space_reverse(uint l, uint h, uint n) {
 		va -= (PAGE_ALIGNMENT * (n-1));
 	}
 
-	k_printf("0x%x\r\n", va);
+	lock_release(&search_lock);
 
 	return va;
 }
