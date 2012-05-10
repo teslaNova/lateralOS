@@ -10,6 +10,8 @@
 
 #include <lateralOS/types.h>
 
+extern void switch_task(uint esp);
+
 extern void irq_gateway0(void);
 extern void irq_gateway1(void);
 extern void irq_gateway2(void);

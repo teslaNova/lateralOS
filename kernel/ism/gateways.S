@@ -7,17 +7,38 @@
 */
 .extern _ism_handler
 
+.global _switch_task
+.global _ism_handler
+
 .macro irq_gateway int_num
 	.align 16 						// to calc. just too lazy to write it down somewhere else for each function. its also much more cleaner 
 	.global _irq_gateway\int_num;
 	_irq_gateway\int_num:
-	cli 							// stop interrupts for now
-
+	cli
 	pushl $\int_num
 	jmp _ism_gateway
 
 
 .endm
+
+_switch_task:
+	pushl %ebp
+	mov %esp, %ebp
+	mov 8(%ebp), %esp
+	mov %esp, %ebp
+
+	add $0x10, %esp		// cr0, cr2, cr3, cr4
+
+	pop %ds
+	pop %es
+	pop %fs
+	pop %gs
+
+	popal
+
+	add $0x4, %esp		// int_no
+
+	iret
 
 _ism_gateway:
 	pushal
@@ -39,9 +60,15 @@ _ism_gateway:
 	mov %cr0, %eax
 	pushl %eax
 
+	mov $0x10, %ax
+	mov %ax, %es
+	mov %ax, %fs
+	mov %ax, %gs
+	mov %ax, %ds
+
 	pushl %esp
 	call _ism_handler
-	add $20, %esp 					// esp, segment register
+	add $0x14, %esp 				// cr0, cr2, cr3, cr4
 
 	popl %ds
 	popl %es
@@ -49,7 +76,7 @@ _ism_gateway:
 	popl %gs
 
 	popal
-	add $4, %esp 					// int_no
+	add $0x4, %esp 					// int_no
 
 	iret
 
