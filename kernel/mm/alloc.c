@@ -7,7 +7,7 @@
 */
 #include <lateralOS/mm/mm.h>
 
-#include <lateralOS/screen.h>
+#include <lateralOS/lock.h>
 
 struct mm_chunk *k_heap = 0;
 
@@ -38,9 +38,13 @@ request_chunks(void) {
 
 void *
 k_malloc(uint size) {
+	static byte alloc_lock;
+
 	struct mm_chunk *chunk;
 	struct mm_block *block;
 	uint actual_size = size + sizeof(struct mm_block);
+
+	lock_acquire(&alloc_lock);
 
 	struct vmm_flags flags = {
 		.writeable = 1,
@@ -49,6 +53,7 @@ k_malloc(uint size) {
 	};
 
 	if(actual_size > 0x7FFFFFFF) {
+		lock_release(&alloc_lock);
 		return (void *)0;
 	}
 
@@ -56,6 +61,7 @@ k_malloc(uint size) {
 		k_heap = request_chunks();
 
 		if(k_heap == 0) {
+			lock_release(&alloc_lock);
 			return (void *)0;
 		}
 	}
@@ -71,6 +77,7 @@ k_malloc(uint size) {
 		chunk = chunk->next_chunk;
 
 		if(chunk == 0) {
+			lock_release(&alloc_lock);
 			return (void *)0;
 		}
 	}
@@ -89,6 +96,7 @@ k_malloc(uint size) {
 		block = chunk->first_block;
 
 		if(block == 0) {
+			lock_release(&alloc_lock);
 			return (void *)0;
 		}
 
@@ -100,9 +108,11 @@ k_malloc(uint size) {
 		block->size = (size & 0x7FFFFFFF);
 		chunk->size -= actual_size;
 
+		lock_release(&alloc_lock);
 		return (void *)((uint)block + sizeof(struct mm_block));
 	}
 
+	lock_release(&alloc_lock);
 	return (void *)0;
 }
 
@@ -116,13 +126,19 @@ k_realloc(void *base, uint size) {
 	}
 
 	memcpy(new, base, size);
+	k_free(base);
+	
 	return new;
 }
 
 void
 k_free(void *base) {
+	static byte free_lock;
+
 	struct mm_chunk *chunk = k_heap;
 	struct mm_block *block;
+
+	lock_acquire(&free_lock);
 
 	if(chunk == 0) {
 		return;
@@ -158,6 +174,7 @@ k_free(void *base) {
 					enhance!
 				*/
 
+				lock_release(&free_lock);
 				return;
 			}
 
@@ -166,4 +183,6 @@ k_free(void *base) {
 
 		chunk = chunk->next_chunk;
 	} while(chunk->size != MM_CHUNK_UNUSED && chunk->next_chunk != 0);
+
+	lock_release(&free_lock);
 }
